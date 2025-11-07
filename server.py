@@ -3,7 +3,6 @@
 import os
 import logging
 from typing import Any
-from fastmcp import FastMCP
 import chess
 import chess.engine
 import httpx
@@ -11,6 +10,9 @@ import httpx
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import from official MCP SDK
+from mcp.server.fastmcp import FastMCP
 
 # Configuration
 STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/usr/games/stockfish")
@@ -232,11 +234,14 @@ async def get_cloud_eval(fen: str) -> dict[str, Any]:
         logger.error(f"Cloud eval failed: {e}")
         return {"error": str(e)}
 
+# Get the ASGI app for Cloud Run
+app = mcp.streamable_http_app()
+
 if __name__ == "__main__":
+    import uvicorn
     logger.info(f"Starting Chess MCP Server on port {PORT}")
     logger.info(f"Stockfish path: {STOCKFISH_PATH}")
     logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
     
-    # Run with Streamable HTTP transport (modern standard)
-    mcp.run(transport="http", host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
 ```
