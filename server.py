@@ -160,53 +160,109 @@ async def fetch_user_games(
 ) -> dict[str, Any]:
     """Fetch recent games from a Lichess user."""
     try:
-        headers = {}
-        if LICHESS_TOKEN:
-            headers["Authorization"] = f"Bearer {LICHESS_TOKEN}"
-
+        # Check if token is set
+        if not LICHESS_TOKEN:
+            return {
+                "error": "LICHESS_TOKEN environment variable not set. Please add it in Cloud Run settings.",
+                "status": "configuration_error"
+            }
+        
+        headers = {
+            "Authorization": f"Bearer {LICHESS_TOKEN}",
+            "Accept": "application/x-ndjson"
+        }
         max_games = min(max_games, 50)
+        
         params = {
             "max": max_games,
             "pgnInJson": "true",
-            "clocks": "true",
-            "evals": "true",
-            "opening": "true"
+            "clocks": "false",
+            "evals": "false",
+            "opening": "true",
+            "moves": "false",
+            "tags": "true"
         }
 
         if time_control:
             params["perfType"] = time_control
 
         url = f"{LICHESS_API_BASE}/games/user/{username}"
+        
+        logger.info(f"Fetching games for user: {username}")
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params=params, headers=headers, timeout=30.0)
-            response.raise_for_status()
+            
+            # Log response for debugging
+            logger.info(f"Lichess API status: {response.status_code}")
+            logger.info(f"Response content type: {response.headers.get('content-type')}")
+            
+            # Check if response is successful
+            if response.status_code != 200:
+                error_text = response.text[:500]  # First 500 chars
+                logger.error(f"Lichess API error: {response.status_code} - {error_text}")
+                return {
+                    "error": f"Lichess API returned status {response.status_code}",
+                    "status_code": response.status_code,
+                    "response_preview": error_text,
+                    "possible_causes": [
+                        "Username doesn't exist" if response.status_code == 404 else None,
+                        "Authentication failed - check LICHESS_TOKEN" if response.status_code == 401 else None,
+                        "Token permissions insufficient" if response.status_code == 403 else None
+                    ]
+                }
 
+            # Try to parse NDJSON response
             games = []
             for line in response.text.strip().split('\n'):
                 if line:
-                    import json
-                    game_data = json.loads(line)
-                    games.append({
-                        "id": game_data.get("id"),
-                        "pgn": game_data.get("pgn", ""),
-                        "white": game_data.get("players", {}).get("white", {}).get("user", {}).get("name"),
-                        "black": game_data.get("players", {}).get("black", {}).get("user", {}).get("name"),
-                        "winner": game_data.get("winner"),
-                        "opening": game_data.get("opening", {}).get("name"),
-                        "time_control": game_data.get("speed"),
-                        "rated": game_data.get("rated"),
-                        "url": f"https://lichess.org/{game_data.get('id')}"
-                    })
+                    try:
+                        import json
+                        game_data = json.loads(line)
+                        games.append({
+                            "id": game_data.get("id"),
+                            "pgn": game_data.get("pgn", ""),
+                            "white": game_data.get("players", {}).get("white", {}).get("user", {}).get("name"),
+                            "black": game_data.get("players", {}).get("black", {}).get("user", {}).get("name"),
+                            "winner": game_data.get("winner"),
+                            "opening": game_data.get("opening", {}).get("name"),
+                            "time_control": game_data.get("speed"),
+                            "rated": game_data.get("rated"),
+                            "url": f"https://lichess.org/{game_data.get('id')}"
+                        })
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse game line: {line[:100]}")
+                        logger.error(f"JSON error: {e}")
+                        continue
+
+            if not games:
+                return {
+                    "username": username,
+                    "games_count": 0,
+                    "message": "No games found. User might have no public games or username doesn't exist.",
+                    "games": []
+                }
 
             return {
                 "username": username,
                 "games_count": len(games),
                 "games": games
             }
+            
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error fetching games: {e}")
+        return {
+            "error": f"HTTP error: {e.response.status_code}",
+            "details": str(e)
+        }
     except Exception as e:
         logger.error(f"Failed to fetch games: {e}")
-        return {"error": str(e)}
+        logger.error(f"Error type: {type(e).__name__}")
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "username": username
+        }
 
 @mcp.tool()
 async def get_cloud_eval(fen: str) -> dict[str, Any]:
@@ -242,5 +298,11 @@ if __name__ == "__main__":
     logger.info(f"Starting Chess MCP Server on port {PORT}")
     logger.info(f"Stockfish path: {STOCKFISH_PATH}")
     logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
+    
+    # Log token status (without exposing the actual token)
+    if LICHESS_TOKEN:
+        logger.info(f"LICHESS_TOKEN is set (starts with: {LICHESS_TOKEN[:8]}...)")
+    else:
+        logger.warning("LICHESS_TOKEN is NOT set!")
     
     uvicorn.run(app, host="0.0.0.0", port=PORT)
