@@ -313,16 +313,19 @@ if __name__ == "__main__":
     async def health_check(request):
         return JSONResponse({"status": "healthy", "service": "chess-mcp-server"})
 
-    # Get the ASGI app from FastMCP
-    mcp_app = mcp.get_asgi_app(path="/mcp")
+    # Get the HTTP transport ASGI app from FastMCP
+    # This creates a Starlette app with MCP endpoints at /mcp (default path)
+    mcp_app = mcp.http_app()
 
-    # Create main app with health check
+    # Create main app with health checks and MCP server
+    # CRITICAL: Must pass lifespan from mcp_app for proper session management
     app = Starlette(
         routes=[
             Route("/", health_check),
             Route("/health", health_check),
-            Mount("/mcp", app=mcp_app),
-        ]
+            Mount("/", app=mcp_app),  # Mount at root, MCP endpoints at /mcp
+        ],
+        lifespan=mcp_app.lifespan  # Required for MCP session manager initialization
     )
 
     # Setup cleanup on shutdown signals
