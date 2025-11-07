@@ -1,4 +1,4 @@
-"""Chess MCP Server - SSE Transport with Stockfish and Lichess"""
+"""Chess MCP Server - Streamable HTTP with Stockfish and Lichess"""
 
 import os
 import logging
@@ -7,7 +7,6 @@ from fastmcp import FastMCP
 import chess
 import chess.engine
 import httpx
-import asyncio
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -232,4 +231,12 @@ async def get_cloud_eval(fen: str) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Cloud eval failed: {e}")
         return {"error": str(e)}
+
+if __name__ == "__main__":
+    logger.info(f"Starting Chess MCP Server on port {PORT}")
+    logger.info(f"Stockfish path: {STOCKFISH_PATH}")
+    logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
+    
+    # Run with Streamable HTTP transport (modern standard)
+    mcp.run(transport="http", host="0.0.0.0", port=PORT)
 ```
