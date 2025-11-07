@@ -1,9 +1,9 @@
-"""Chess MCP Server - HTTP Transport with Stockfish and Lichess"""
+"""Chess MCP Server - SSE Transport with Stockfish and Lichess"""
 
 import os
 import logging
 from typing import Any
-from mcp.server import FastMCP
+from fastmcp import FastMCP
 import chess
 import chess.engine
 import httpx
@@ -12,9 +12,6 @@ import asyncio
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Initialize MCP server
-mcp = FastMCP("chess-mcp-server")
 
 # Configuration
 STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/usr/games/stockfish")
@@ -25,7 +22,6 @@ PORT = int(os.getenv("PORT", 8080))
 
 # Global engine instance
 engine = None
-
 
 async def get_engine():
     """Get or create Stockfish engine instance."""
@@ -39,6 +35,8 @@ async def get_engine():
             raise
     return engine
 
+# Initialize MCP server
+mcp = FastMCP("chess-mcp-server")
 
 @mcp.tool()
 async def analyze_position(fen: str, depth: int = None) -> dict[str, Any]:
@@ -51,8 +49,6 @@ async def analyze_position(fen: str, depth: int = None) -> dict[str, Any]:
 
     Returns:
         Analysis with evaluation score, best move, and principal variation
-
-    Example FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
     """
     try:
         if depth is None:
@@ -60,7 +56,6 @@ async def analyze_position(fen: str, depth: int = None) -> dict[str, Any]:
 
         board = chess.Board(fen)
         engine_instance = await get_engine()
-
         actual_depth = min(depth, 25)
 
         result = await engine_instance.analyse(
@@ -87,18 +82,9 @@ async def analyze_position(fen: str, depth: int = None) -> dict[str, Any]:
         logger.error(f"Analysis failed: {e}")
         return {"error": str(e)}
 
-
 @mcp.tool()
 async def get_best_move(fen: str) -> dict[str, Any]:
-    """
-    Calculate the best move for a chess position.
-
-    Args:
-        fen: Position in FEN notation
-
-    Returns:
-        Best move in both UCI and standard algebraic notation (SAN)
-    """
+    """Calculate the best move for a chess position."""
     try:
         board = chess.Board(fen)
         engine_instance = await get_engine()
@@ -119,19 +105,9 @@ async def get_best_move(fen: str) -> dict[str, Any]:
         logger.error(f"Best move calculation failed: {e}")
         return {"error": str(e)}
 
-
 @mcp.tool()
 async def validate_move(fen: str, move_uci: str) -> dict[str, Any]:
-    """
-    Check if a move is legal in a given position.
-
-    Args:
-        fen: Position in FEN notation
-        move_uci: Move in UCI format (e.g., "e2e4", "g1f3")
-
-    Returns:
-        Whether the move is legal and the resulting position
-    """
+    """Check if a move is legal in a given position."""
     try:
         board = chess.Board(fen)
         move = chess.Move.from_uci(move_uci)
@@ -156,18 +132,9 @@ async def validate_move(fen: str, move_uci: str) -> dict[str, Any]:
         logger.error(f"Move validation failed: {e}")
         return {"is_legal": False, "error": str(e)}
 
-
 @mcp.tool()
 async def get_legal_moves(fen: str) -> dict[str, Any]:
-    """
-    Get all legal moves for a position.
-
-    Args:
-        fen: Position in FEN notation
-
-    Returns:
-        List of all legal moves in UCI format
-    """
+    """Get all legal moves for a position."""
     try:
         board = chess.Board(fen)
         legal_moves_uci = [str(move) for move in board.legal_moves]
@@ -184,31 +151,19 @@ async def get_legal_moves(fen: str) -> dict[str, Any]:
         logger.error(f"Failed to get legal moves: {e}")
         return {"error": str(e)}
 
-
 @mcp.tool()
 async def fetch_user_games(
     username: str,
     max_games: int = 10,
     time_control: str = None
 ) -> dict[str, Any]:
-    """
-    Fetch recent games from a Lichess user.
-
-    Args:
-        username: Lichess username
-        max_games: Number of games to fetch (default: 10, max: 50)
-        time_control: Filter by time control (blitz, rapid, classical, bullet)
-
-    Returns:
-        List of games with PGN, players, results, and openings
-    """
+    """Fetch recent games from a Lichess user."""
     try:
         headers = {}
         if LICHESS_TOKEN:
             headers["Authorization"] = f"Bearer {LICHESS_TOKEN}"
 
-        max_games = min(max_games, 50)  # Cap at 50
-
+        max_games = min(max_games, 50)
         params = {
             "max": max_games,
             "pgnInJson": "true",
@@ -252,18 +207,9 @@ async def fetch_user_games(
         logger.error(f"Failed to fetch games: {e}")
         return {"error": str(e)}
 
-
 @mcp.tool()
 async def get_cloud_eval(fen: str) -> dict[str, Any]:
-    """
-    Get cloud evaluation from Lichess opening database.
-
-    Args:
-        fen: Position in FEN notation
-
-    Returns:
-        Cloud evaluation with best moves from master games
-    """
+    """Get cloud evaluation from Lichess opening database."""
     try:
         url = f"{LICHESS_API_BASE}/cloud-eval"
         params = {"fen": fen}
@@ -286,21 +232,4 @@ async def get_cloud_eval(fen: str) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Cloud eval failed: {e}")
         return {"error": str(e)}
-
-
-async def cleanup():
-    """Cleanup Stockfish engine on shutdown."""
-    global engine
-    if engine:
-        await engine.quit()
-        logger.info("Stockfish engine closed")
-
-
-if __name__ == "__main__":
-    logger.info(f"Starting Chess MCP Server on port {PORT}")
-    logger.info(f"Stockfish path: {STOCKFISH_PATH}")
-    logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
-    
-    # Run the FastMCP server directly with HTTP transport
-    mcp.run(transport="sse", host="0.0.0.0", port=PORT)
 ```
