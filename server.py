@@ -298,17 +298,23 @@ async def cleanup():
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     logger.info(f"Starting Chess MCP Server on port {PORT}")
     logger.info(f"Stockfish path: {STOCKFISH_PATH}")
     logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
 
+    # Get the ASGI app from FastMCP
+    app = mcp.get_asgi_app(path="/mcp")
+
+    # Run with uvicorn for proper Cloud Run compatibility
     try:
-        asyncio.run(
-            mcp.run_async(
-                transport="streamable-http",
-                host="0.0.0.0",
-                port=PORT
-            )
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=PORT,
+            log_level="info",
+            access_log=True
         )
     finally:
         asyncio.run(cleanup())
