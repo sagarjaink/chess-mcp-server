@@ -173,14 +173,14 @@ async def fetch_user_games(
         }
         max_games = min(max_games, 50)
         
+        # Note: pgnInJson must be true to get pgn field in JSON response
         params = {
             "max": max_games,
             "pgnInJson": "true",
-            "clocks": "false",
-            "evals": "false",
+            "moves": "true",
             "opening": "true",
-            "moves": "false",
-            "tags": "true"
+            "clocks": "false",
+            "evals": "false"
         }
 
         if time_control:
@@ -195,41 +195,44 @@ async def fetch_user_games(
             
             # Log response for debugging
             logger.info(f"Lichess API status: {response.status_code}")
-            logger.info(f"Response content type: {response.headers.get('content-type')}")
             
             # Check if response is successful
             if response.status_code != 200:
-                error_text = response.text[:500]  # First 500 chars
+                error_text = response.text[:500]
                 logger.error(f"Lichess API error: {response.status_code} - {error_text}")
                 return {
                     "error": f"Lichess API returned status {response.status_code}",
                     "status_code": response.status_code,
-                    "response_preview": error_text,
-                    "possible_causes": [
-                        "Username doesn't exist" if response.status_code == 404 else None,
-                        "Authentication failed - check LICHESS_TOKEN" if response.status_code == 401 else None,
-                        "Token permissions insufficient" if response.status_code == 403 else None
-                    ]
+                    "response_preview": error_text
                 }
 
-            # Try to parse NDJSON response
+            # Parse NDJSON response (newline-delimited JSON)
             games = []
             for line in response.text.strip().split('\n'):
                 if line:
                     try:
                         import json
                         game_data = json.loads(line)
-                        games.append({
+                        
+                        # Extract game info with proper PGN
+                        game_info = {
                             "id": game_data.get("id"),
-                            "pgn": game_data.get("pgn", ""),
+                            "pgn": game_data.get("pgn", ""),  # This should now have the moves
                             "white": game_data.get("players", {}).get("white", {}).get("user", {}).get("name"),
                             "black": game_data.get("players", {}).get("black", {}).get("user", {}).get("name"),
+                            "white_rating": game_data.get("players", {}).get("white", {}).get("rating"),
+                            "black_rating": game_data.get("players", {}).get("black", {}).get("rating"),
                             "winner": game_data.get("winner"),
+                            "status": game_data.get("status"),
                             "opening": game_data.get("opening", {}).get("name"),
                             "time_control": game_data.get("speed"),
                             "rated": game_data.get("rated"),
-                            "url": f"https://lichess.org/{game_data.get('id')}"
-                        })
+                            "url": f"https://lichess.org/{game_data.get('id')}",
+                            "created_at": game_data.get("createdAt")
+                        }
+                        
+                        games.append(game_info)
+                        
                     except json.JSONDecodeError as e:
                         logger.error(f"Failed to parse game line: {line[:100]}")
                         logger.error(f"JSON error: {e}")
@@ -243,6 +246,8 @@ async def fetch_user_games(
                     "games": []
                 }
 
+            logger.info(f"Successfully fetched {len(games)} games for {username}")
+            
             return {
                 "username": username,
                 "games_count": len(games),
