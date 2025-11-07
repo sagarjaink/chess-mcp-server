@@ -22,16 +22,18 @@ LICHESS_TOKEN = os.getenv("LICHESS_TOKEN")
 LICHESS_API_BASE = "https://lichess.org/api"
 PORT = int(os.getenv("PORT", 8080))
 
-# Global engine instance
+# Global engine instance (stores the protocol object, not SimpleEngine)
 engine = None
+transport = None
 
 async def get_engine():
     """Get or create Stockfish engine instance."""
-    global engine
+    global engine, transport
     if engine is None:
         try:
-            engine = await chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-            logger.info(f"Stockfish initialized: {engine.id['name']}")
+            # Correct async pattern from python-chess documentation
+            transport, engine = await chess.engine.popen_uci(STOCKFISH_PATH)
+            logger.info(f"Stockfish initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Stockfish: {e}")
             raise
@@ -205,7 +207,7 @@ async def fetch_user_games(
 
         url = f"{LICHESS_API_BASE}/games/user/{username}"
         
-        logger.info(f"Fetching games for {username} with params: {params}")
+        logger.info(f"Fetching games for {username}")
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params=params, headers=headers, timeout=30.0)
@@ -254,7 +256,7 @@ async def fetch_user_games(
                     games.append(game_info)
                     
                 except json.JSONDecodeError as e:
-                    logger.error(f"JSON parse error on line: {line[:100]}")
+                    logger.error(f"JSON parse error: {e}")
                     continue
 
             if not games:
