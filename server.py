@@ -314,16 +314,17 @@ if __name__ == "__main__":
         return JSONResponse({"status": "healthy", "service": "chess-mcp-server"})
 
     # Get the HTTP transport ASGI app from FastMCP
-    # This creates a Starlette app with MCP endpoints at /mcp (default path)
+    # MCP endpoints will be available at /mcp/... paths
     mcp_app = mcp.http_app()
 
-    # Create main app with health checks and MCP server
+    # Create main app with health checks first, then mount MCP server
+    # Route order matters: specific routes before mount points
     # CRITICAL: Must pass lifespan from mcp_app for proper session management
     app = Starlette(
         routes=[
             Route("/", health_check),
             Route("/health", health_check),
-            Mount("/", app=mcp_app),  # Mount at root, MCP endpoints at /mcp
+            Mount("/mcp", app=mcp_app),  # Mount MCP at /mcp/* - MUST come after specific routes
         ],
         lifespan=mcp_app.lifespan  # Required for MCP session manager initialization
     )
