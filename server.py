@@ -244,4 +244,3 @@ if __name__ == "__main__":
     logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
     
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-```
