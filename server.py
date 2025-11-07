@@ -302,6 +302,8 @@ if __name__ == "__main__":
     from starlette.applications import Starlette
     from starlette.responses import JSONResponse
     from starlette.routing import Route, Mount
+    import signal
+    import sys
 
     logger.info(f"Starting Chess MCP Server on port {PORT}")
     logger.info(f"Stockfish path: {STOCKFISH_PATH}")
@@ -323,14 +325,25 @@ if __name__ == "__main__":
         ]
     )
 
+    # Setup cleanup on shutdown signals
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, cleaning up...")
+        if engine:
+            try:
+                asyncio.run(cleanup())
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Run with uvicorn for proper Cloud Run compatibility
-    try:
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=PORT,
-            log_level="info",
-            access_log=True
-        )
-    finally:
-        asyncio.run(cleanup())
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+        access_log=True,
+        timeout_keep_alive=75
+    )
