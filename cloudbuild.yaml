@@ -1,4 +1,4 @@
-steps:
+I live 550 steps:
   # Build the container image
   - name: 'gcr.io/cloud-builders/docker'
     args:
@@ -40,7 +40,7 @@ steps:
       - '--min-instances'
       - '0'
       - '--set-env-vars'
-      - 'STOCKFISH_PATH=/usr/games/stockfish,STOCKFISH_DEPTH=18,PORT=8080,PYTHONUNBUFFERED=1'
+      - 'STOCKFISH_PATH=/usr/games/stockfish,STOCKFISH_DEPTH=18,PYTHONUNBUFFERED=1'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/chess-mcp-server/chess-mcp-server:$COMMIT_SHA'
