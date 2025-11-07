@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Chess MCP Server - Streamable HTTP with Stockfish and Lichess"""
+"""Chess MCP Server - HTTP Transport with Stockfish and Lichess"""
 
 import os
 import logging
@@ -298,56 +297,10 @@ async def cleanup():
 
 
 if __name__ == "__main__":
-    import uvicorn
-    from starlette.applications import Starlette
-    from starlette.responses import JSONResponse
-    from starlette.routing import Route, Mount
-    import signal
-    import sys
-
     logger.info(f"Starting Chess MCP Server on port {PORT}")
     logger.info(f"Stockfish path: {STOCKFISH_PATH}")
     logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
-
-    # Health check endpoint for Cloud Run
-    async def health_check(request):
-        return JSONResponse({"status": "healthy", "service": "chess-mcp-server"})
-
-    # Get the HTTP transport ASGI app from FastMCP
-    # MCP endpoints will be available at /mcp/... paths
-    mcp_app = mcp.http_app()
-
-    # Create main app with health checks first, then mount MCP server
-    # Route order matters: specific routes before mount points
-    # CRITICAL: Must pass lifespan from mcp_app for proper session management
-    app = Starlette(
-        routes=[
-            Route("/", health_check),
-            Route("/health", health_check),
-            Mount("/mcp", app=mcp_app),  # Mount MCP at /mcp/* - MUST come after specific routes
-        ],
-        lifespan=mcp_app.lifespan  # Required for MCP session manager initialization
-    )
-
-    # Setup cleanup on shutdown signals
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, cleaning up...")
-        if engine:
-            try:
-                asyncio.run(cleanup())
-            except Exception as e:
-                logger.error(f"Cleanup error: {e}")
-        sys.exit(0)
-
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-
-    # Run with uvicorn for proper Cloud Run compatibility
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=PORT,
-        log_level="info",
-        access_log=True,
-        timeout_keep_alive=75
-    )
+    
+    # Run the FastMCP server directly with HTTP transport
+    mcp.run(transport="sse", host="0.0.0.0", port=PORT)
+```
