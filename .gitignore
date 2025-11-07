@@ -25,3 +25,20 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
