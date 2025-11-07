@@ -2,6 +2,7 @@
 
 import os
 import logging
+import json
 from typing import Any
 import chess
 import chess.engine
@@ -158,29 +159,45 @@ async def fetch_user_games(
     max_games: int = 10,
     time_control: str = None
 ) -> dict[str, Any]:
-    """Fetch recent games from a Lichess user."""
+    """
+    Fetch recent games from a Lichess user with full PGN notation.
+    
+    Args:
+        username: Lichess username
+        max_games: Number of games to fetch (default: 10, max: 50)
+        time_control: Filter by time control (ultraBullet, bullet, blitz, rapid, classical)
+    
+    Returns:
+        List of games with complete PGN, players, results, and openings
+    """
     try:
         # Check if token is set
         if not LICHESS_TOKEN:
             return {
-                "error": "LICHESS_TOKEN environment variable not set. Please add it in Cloud Run settings.",
-                "status": "configuration_error"
+                "error": "LICHESS_TOKEN not configured",
+                "message": "Add LICHESS_TOKEN environment variable in Cloud Run settings"
             }
         
         headers = {
             "Authorization": f"Bearer {LICHESS_TOKEN}",
             "Accept": "application/x-ndjson"
         }
+        
         max_games = min(max_games, 50)
         
-        # Note: pgnInJson must be true to get pgn field in JSON response
+        # Parameters based on official Lichess API documentation
+        # https://lichess.org/api#operation/apiGamesUser
         params = {
             "max": max_games,
-            "pgnInJson": "true",
-            "moves": "true",
-            "opening": "true",
-            "clocks": "false",
-            "evals": "false"
+            "moves": "true",           # Include PGN moves (default: true)
+            "pgnInJson": "true",       # CRITICAL: Include PGN in JSON response (default: false)
+            "tags": "true",            # Include PGN tags (default: true)
+            "clocks": "true",          # Include clock comments (default: false)
+            "evals": "true",           # Include analysis (default: false) 
+            "opening": "true",         # Include opening name (default: false)
+            "ongoing": "false",        # Exclude ongoing games
+            "finished": "true",        # Include finished games
+            "sort": "dateDesc"         # Most recent first
         }
 
         if time_control:
@@ -188,65 +205,67 @@ async def fetch_user_games(
 
         url = f"{LICHESS_API_BASE}/games/user/{username}"
         
-        logger.info(f"Fetching games for user: {username}")
+        logger.info(f"Fetching games for {username} with params: {params}")
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params=params, headers=headers, timeout=30.0)
             
-            # Log response for debugging
-            logger.info(f"Lichess API status: {response.status_code}")
+            logger.info(f"Lichess response: {response.status_code}")
             
-            # Check if response is successful
             if response.status_code != 200:
                 error_text = response.text[:500]
-                logger.error(f"Lichess API error: {response.status_code} - {error_text}")
+                logger.error(f"Lichess error {response.status_code}: {error_text}")
                 return {
-                    "error": f"Lichess API returned status {response.status_code}",
-                    "status_code": response.status_code,
-                    "response_preview": error_text
+                    "error": f"Lichess API error: {response.status_code}",
+                    "details": error_text,
+                    "username": username
                 }
 
-            # Parse NDJSON response (newline-delimited JSON)
+            # Parse NDJSON (newline-delimited JSON)
             games = []
-            for line in response.text.strip().split('\n'):
-                if line:
-                    try:
-                        import json
-                        game_data = json.loads(line)
-                        
-                        # Extract game info with proper PGN
-                        game_info = {
-                            "id": game_data.get("id"),
-                            "pgn": game_data.get("pgn", ""),  # This should now have the moves
-                            "white": game_data.get("players", {}).get("white", {}).get("user", {}).get("name"),
-                            "black": game_data.get("players", {}).get("black", {}).get("user", {}).get("name"),
-                            "white_rating": game_data.get("players", {}).get("white", {}).get("rating"),
-                            "black_rating": game_data.get("players", {}).get("black", {}).get("rating"),
-                            "winner": game_data.get("winner"),
-                            "status": game_data.get("status"),
-                            "opening": game_data.get("opening", {}).get("name"),
-                            "time_control": game_data.get("speed"),
-                            "rated": game_data.get("rated"),
-                            "url": f"https://lichess.org/{game_data.get('id')}",
-                            "created_at": game_data.get("createdAt")
-                        }
-                        
-                        games.append(game_info)
-                        
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse game line: {line[:100]}")
-                        logger.error(f"JSON error: {e}")
-                        continue
+            lines = response.text.strip().split('\n')
+            
+            for line in lines:
+                if not line.strip():
+                    continue
+                    
+                try:
+                    game_data = json.loads(line)
+                    
+                    # Extract game information
+                    game_info = {
+                        "id": game_data.get("id"),
+                        "pgn": game_data.get("pgn", ""),  # Full PGN with moves
+                        "white": game_data.get("players", {}).get("white", {}).get("user", {}).get("name"),
+                        "black": game_data.get("players", {}).get("black", {}).get("user", {}).get("name"),
+                        "white_rating": game_data.get("players", {}).get("white", {}).get("rating"),
+                        "black_rating": game_data.get("players", {}).get("black", {}).get("rating"),
+                        "winner": game_data.get("winner"),
+                        "status": game_data.get("status"),
+                        "opening": game_data.get("opening", {}).get("name"),
+                        "opening_eco": game_data.get("opening", {}).get("eco"),
+                        "time_control": game_data.get("speed"),
+                        "rated": game_data.get("rated"),
+                        "variant": game_data.get("variant"),
+                        "url": f"https://lichess.org/{game_data.get('id')}",
+                        "created_at": game_data.get("createdAt")
+                    }
+                    
+                    games.append(game_info)
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON parse error on line: {line[:100]}")
+                    continue
 
             if not games:
                 return {
                     "username": username,
                     "games_count": 0,
-                    "message": "No games found. User might have no public games or username doesn't exist.",
+                    "message": "No games found for this user",
                     "games": []
                 }
 
-            logger.info(f"Successfully fetched {len(games)} games for {username}")
+            logger.info(f"Successfully fetched {len(games)} games")
             
             return {
                 "username": username,
@@ -254,15 +273,8 @@ async def fetch_user_games(
                 "games": games
             }
             
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error fetching games: {e}")
-        return {
-            "error": f"HTTP error: {e.response.status_code}",
-            "details": str(e)
-        }
     except Exception as e:
-        logger.error(f"Failed to fetch games: {e}")
-        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error fetching games: {e}")
         return {
             "error": str(e),
             "error_type": type(e).__name__,
@@ -304,10 +316,9 @@ if __name__ == "__main__":
     logger.info(f"Stockfish path: {STOCKFISH_PATH}")
     logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
     
-    # Log token status (without exposing the actual token)
     if LICHESS_TOKEN:
-        logger.info(f"LICHESS_TOKEN is set (starts with: {LICHESS_TOKEN[:8]}...)")
+        logger.info(f"LICHESS_TOKEN: Set (starts with {LICHESS_TOKEN[:8]}...)")
     else:
-        logger.warning("LICHESS_TOKEN is NOT set!")
+        logger.warning("LICHESS_TOKEN: NOT SET - Lichess features will not work")
     
     uvicorn.run(app, host="0.0.0.0", port=PORT)
