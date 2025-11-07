@@ -299,13 +299,29 @@ async def cleanup():
 
 if __name__ == "__main__":
     import uvicorn
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route, Mount
 
     logger.info(f"Starting Chess MCP Server on port {PORT}")
     logger.info(f"Stockfish path: {STOCKFISH_PATH}")
     logger.info(f"Analysis depth: {STOCKFISH_DEPTH}")
 
+    # Health check endpoint for Cloud Run
+    async def health_check(request):
+        return JSONResponse({"status": "healthy", "service": "chess-mcp-server"})
+
     # Get the ASGI app from FastMCP
-    app = mcp.get_asgi_app(path="/mcp")
+    mcp_app = mcp.get_asgi_app(path="/mcp")
+
+    # Create main app with health check
+    app = Starlette(
+        routes=[
+            Route("/", health_check),
+            Route("/health", health_check),
+            Mount("/mcp", app=mcp_app),
+        ]
+    )
 
     # Run with uvicorn for proper Cloud Run compatibility
     try:
